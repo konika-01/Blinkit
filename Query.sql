@@ -638,11 +638,35 @@ commit;
 -- 3. check duplicates
 select * from delivery_performance;
 
-select count(*) as dupe_count from delivery_performance
+select *, count(*) as dupe_count from delivery_performance
 group by order_id, delivery_partner_id, scheduled_time, actual_time, delivery_time_minutes, distance_km,
-delivery_status, reasons_if_delayed
-having dupe_count > 1;
+delivery_status, reasons_if_delayed;
 -- 2 dupes for 7 rows
+
+-- to remove duplicates
+-- 1. add id autoincrement primary key to the col
+-- 2. using window function give row number to each
+-- 3. take out id from subquery, and use delete command
+-- 4. delte can delete rows from a table, it can be used with subquery, cte
+
+start transaction;
+
+alter table delivery_performance add column id int auto_increment primary key;
+
+delete from delivery_performance 
+where id in(
+select id from (
+select id, row_number() over(partition by order_id, delivery_partner_id, scheduled_time, actual_time,
+                     delivery_time_minutes, distance_km, delivery_status, reasons_if_delayed
+        ORDER BY id) as rn
+from delivery_performance)t
+where rn>1);
+
+select * from delivery_performance;
+
+alter table delivery_performance drop column id;
+
+commit;
 
 -- 4. checking data type
 desc delivery_performance;
@@ -651,6 +675,60 @@ desc delivery_performance;
 -- delivery_status text
 -- reasons if dealyed text
 
+select substring_index(scheduled_time, ' ',1) as scheduled_date,
+substring_index(scheduled_time, ' ',-1) as scheduled_time,
+substring_index(actual_time, ' ',1) as actual_date,
+substring_index(actual_time, ' ',-1) as actual_time
+from delivery_performance;
+
+alter table delivery_performance 
+add scheduled_date text,
+add actual_date text;
+
+start transaction;
+
+update delivery_performance
+set scheduled_date = substring_index(scheduled_time,' ',-1),
+scheduled_time = substring_index(scheduled_time,' ',1),
+actual_date =  substring_index(actual_time,' ',-1),
+actual_time =  substring_index(actual_time,' ',1);
+
+commit;
+
+
+desc delivery_performance;
+
+start transaction;
+
+update delivery_performance
+set scheduled_date = str_to_date(scheduled_date, '%Y-%m-%d'),
+actual_date = str_to_date(actual_date, '%Y-%m-%d');
+
+commit;
+
+alter table delivery_performance modify column scheduled_date date,
+modify column actual_date date;
+
+
+select * from delivery_performance;
+
+-- 5. Checking text values
+
+start transaction;
+
+update delivery_performance 
+set delivery_status = trim(delivery_status),
+reasons_if_delayed = trim(delivery_status);
+
+commit;
+
+
+-- EDA
+select count(*) from delivery_performance;
+-- 5000 
+
+select count(distinct order_id), count(distinct delivery_partner_id)  from delivery_performance;
+-- 5000, 5000
 
 /*        ---------------- Feedback - Data Cleaning and EDA ---------------                      */
 
@@ -658,17 +736,47 @@ desc delivery_performance;
 alter table blinkit_customer_Feedback rename to Feedback;
 
 -- 2. checking null values
-select count(*) 
+select count(*) from feedback
 where feedback_id is null or trim(feedback_id) = ""
-or order_id is null 
-or customer_id is null 
-or rating is null 
+or order_id is null or trim(order_id) = ""
+or customer_id is null or trim(customer_id) = ""
+or rating is null or trim(rating) = ""
 or feedback_text is null or trim(feedback_text) = ""
 or feedback_category is null or trim(feedback_category) = ""
 or sentiment is null or trim(sentiment) = ""
-or feedback_date is null or trim(feedback_date) = ""
-from feedback;
+or feedback_date is null or trim(feedback_date) = "";
+-- 0
 
-use p_blinkit;
+-- 3. check duplicates
+select count(*) as dupe_count from feedback
+group by feedback_id, order_id, customer_id, rating, feedback_text,
+feedback_category, sentiment, feedback_date
+having dupe_count >1 ;
+-- no dupes
+
+-- 4. check data types
+desc feedback;
+-- feedback text - text
+-- feedback category text
+-- sentiment text
+-- feedback-date text
+
+select feedback_date from feedback;
+
+update feedback
+set feedback_date = str_to_date(feedback_date, '%Y-%m-%d');
+
+alter table feedback modify feedback_date date;
+
+-- 5. checking text values
+update feedback 
+set feedback_text = trim(feedback_text),
+feedback_category = trim(feedback_category),
+sentiment = trim(sentiment);
+
+-- EDA
 select * from feedback;
+-- 5000
 
+select count(distinct feedback_id) from feedback;
+-- 5000
